@@ -3,9 +3,10 @@ import { FC, useState } from "react";
 import SendIcon from '@mui/icons-material/Send';
 import { useSelector } from "react-redux";
 import { RootState } from "../store/store";
+import { SocketService } from "../services/socketService";
 
 interface IInputFieldProps {
-    socket: React.RefObject<WebSocket | null>
+    socket: SocketService | null
 }
 
 const InputField: FC<IInputFieldProps> = ({socket}) => {
@@ -13,21 +14,19 @@ const InputField: FC<IInputFieldProps> = ({socket}) => {
     const { user } = useSelector((state: RootState) => state.auth);
 
     const sendMessage = () => {
+        if (!text.trim() || !user || !socket) return;
         if (user) {
             const message = {
                 id: Date.now(),
                 chatId: 1,
-                sender: JSON.stringify({uid: user.uid, email: user.email, photoURL: user.photoURL}),
+                sender: {uid: user.uid, email: user.email, photoURL: user.photoURL},
                 text: text,
-                event: 'message'
             }
-            if (socket && socket.current) {
-                try {
-                    socket.current.send(JSON.stringify(message));
-                    setText('');
-                } catch (error) {
-                    console.error('Ошибка при отправке JSON:', error);
-                }
+            try {
+                socket.send({event: "message", data: message});
+                setText("");
+            } catch (error) {
+                console.error("Ошибка при отправке сообщения:", error);
             }
         }
       };
@@ -37,7 +36,7 @@ const InputField: FC<IInputFieldProps> = ({socket}) => {
     <>
         <Box display="flex" sx={{padding: 2}}>
             <TextField value={text} variant="outlined" multiline maxRows={4} fullWidth sx={{marginRight: 1}} onChange={(event: React.ChangeEvent<HTMLInputElement>) => setText(event.target.value)}/>
-            <IconButton sx={{width: '60px', height: '60px'}} onClick={() => sendMessage()}>
+            <IconButton sx={{width: '60px', height: '60px'}} onClick={() => sendMessage()} disabled={!text.trim() || !user || !socket}>
               <SendIcon />
             </IconButton>
         </Box>

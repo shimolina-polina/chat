@@ -1,66 +1,105 @@
 const ws = require('ws');
 const { connectToDatabase } = require('./database');
 
-const wss = new ws.Server({ port: 5000, }, () => console.log("Сервер запущен на 5000"));
+const wss = new ws.Server({ 
+    port: 5000, 
+    verifyClient: (_info, callback) => {
+        callback(true);
+    }
+}, () => console.log("Сервер запущен на ws://localhost:5000"));
+
+let db;
+connectToDatabase().then(database => {
+    db = database;
+    console.log("🔌 Подключено к MongoDB");
+}).catch(err => {
+    console.error("❌ Ошибка подключения к MongoDB:", err);
+    process.exit(1);
+});
 
 wss.on('connection', function connection(ws) {
+    console.log("Новый клиент подключился!");
     ws.on('message', async (message) => {
-        const messageData = JSON.parse(message);
-        const db = await connectToDatabase();
-        const usersCollection = db.collection('users');
+        try {
+            const messageData = JSON.parse(message);
+            console.log("Получено:", messageData)
+            
+            if (!messageData.event) {
+                throw new Error("Нет поля 'event' в сообщении");
+            }
 
-        switch(messageData.event) {
-            case 'message':
-                const messagesCollection = db.collection('messages');
+            const usersCollection = db.collection('users');
+            const messagesCollection = db.collection('messages');
+            const chatsCollection = db.collection('chats');
 
-                const user = JSON.parse(messageData.sender)
-
-                await messagesCollection.insertOne({
-                    id: messageData.id,
-                    chatId: messageData.chatId,
-                    senderId: user.uid,
-                    text: messageData.text,
-                    timestamp: new Date(),
-                    event: 'message'
-                });
-
-                const currentUser = await usersCollection.find({ uid: user.uid }).toArray();
-                if (currentUser.length === 0)
-                    await usersCollection.insertOne({
-                        uid: user.uid,
-                        email: user.email,
-                        photoURL: user.email
-                })
-                broadcastMessage(messageData)
-                break;
-            case 'openChat':
-                const chatMessages = await getChatMessages(messageData.chatId);
-                let messages = []
-                for (const mes of chatMessages) {
-                    const curUser = await usersCollection.findOne({ uid: mes.senderId });
-                    if (curUser) {
-                        messages.push({
-                            id: mes.id,
-                            chatId: mes.chatId,
-                            sender: JSON.stringify({
-                                uid: curUser.uid,
-                                email: curUser.email,
-                                photoURL: curUser.photoURL,
-                            }),
-                            text: mes.text,
-                            timestamp: mes.timestamp
-                        });
+            switch(messageData.event) {
+                case "connect":
+                    const user = messageData.data.user;
+                    if (!user?.uid) {
+                        throw new Error("Нет данных пользователя");
                     }
-                }
 
-                ws.send(JSON.stringify({
-                    event: 'chatHistory',
-                    messages: messages,
-                }));
-                break;
-        
+                    const userChats = await chatsCollection.find({ userIds: user.uid}).toArray();
+
+                    const chatsWithMessages = await Promise.all(
+                        userChats.map(async chat => {
+                            const messages = (await messagesCollection.find({ 
+                                chatId: chat.chatId
+                            }).sort({ timestamp: 1 }).limit(50).toArray()).map(mes => ({
+                                id: mes.id, 
+                                chatId: mes.chatId, 
+                                sender: mes.sender, 
+                                text: mes.text, 
+                                timestamp: mes.timestamp
+                            }));
+                            
+                            return { ...chat, messages };
+                        })
+                    );
+
+                    ws.send(JSON.stringify({
+                        event: 'chats',
+                        data: chatsWithMessages
+                    }));
+
+                    break;
+                case 'message':
+                    if (!messageData.data?.chatId || !messageData.data.sender) {
+                        throw new Error("Неверный формат сообщения");
+                    }
+                    await messagesCollection.insertOne({
+                        id: messageData.data.id,
+                        chatId: messageData.data.chatId,
+                        sender: messageData.data.sender,
+                        text: messageData.data.text,
+                        timestamp: new Date()
+                    });
+
+                    const currentUser = await usersCollection.find({ uid: messageData.data.sender.uid }).toArray();
+                    if (currentUser.length === 0)
+                        await usersCollection.insertOne({
+                            uid: messageData.data.sender.uid,
+                            email: messageData.data.sender.email,
+                            photoURL: messageData.data.sender.email
+                    })
+                    broadcastMessage(messageData)
+                    break;
+                default:
+                    console.warn("Неизвестное событие:", messageData.event);
+
+            }
+        } catch (err) {
+            console.error("Ошибка обработки сообщения:", err);
+            ws.send(JSON.stringify({ 
+                event: 'error', 
+                data: err.message 
+            }));
         }
     });
+
+    ws.on('close', () => {
+        console.log("Клиент отключился");
+    })
 });
 
 
@@ -68,19 +107,4 @@ function broadcastMessage(message) {
     wss.clients.forEach(client => {
         client.send(JSON.stringify(message))
     })
-}
-
-async function getChatMessages(chatId, limit = 50) {
-    const db = await connectToDatabase();
-    const messagesCollection = db.collection('messages');
-    // const messages = await messagesCollection
-    //     .find({ chatId: chatId })
-    //     .sort({ timestamp: -1 })
-    //     .limit(limit)
-    //     .toArray()
-    //     .reverse();
-
-    const messages = await messagesCollection.find({ chatId: chatId}).toArray();
-    console.log(messages)
-    return messages;
 }
