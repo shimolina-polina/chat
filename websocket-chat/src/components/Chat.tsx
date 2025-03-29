@@ -53,7 +53,7 @@ const Chat: FC<{socket: SocketService | null, selectedChat: IChat | null, newMes
                 ))}
                 <div ref={messagesEndRef} />
             </Box>
-            <InputField socket={socket}/>
+            <InputField socket={socket} chatId={selectedChat?.chatId}/>
         </Box>
     );
 }

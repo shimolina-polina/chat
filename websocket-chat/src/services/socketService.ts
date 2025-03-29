@@ -1,6 +1,6 @@
 import { IUser } from "../interface/IUser";
 
-type SocketEvent = "message" | "connect";
+type SocketEvent = "message" | "connect" | "createChat" | "users";
 
 interface SocketMessage<T = any> {
     event: SocketEvent;

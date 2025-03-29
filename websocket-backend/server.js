@@ -1,5 +1,6 @@
 const ws = require('ws');
 const { connectToDatabase } = require('./database');
+const crypto = require('crypto');
 
 const wss = new ws.Server({ 
     port: 5000, 
@@ -11,9 +12,9 @@ const wss = new ws.Server({
 let db;
 connectToDatabase().then(database => {
     db = database;
-    console.log("🔌 Подключено к MongoDB");
+    console.log("Подключено к MongoDB");
 }).catch(err => {
-    console.error("❌ Ошибка подключения к MongoDB:", err);
+    console.error("Ошибка подключения к MongoDB:", err);
     process.exit(1);
 });
 
@@ -83,6 +84,57 @@ wss.on('connection', function connection(ws) {
                             photoURL: messageData.data.sender.email
                     })
                     broadcastMessage(messageData)
+                    break;
+                case 'createChat':
+                    if (messageData.data.type === "private") {
+                        const secondUser = await usersCollection.findOne({uid: messageData.data.userIds[0]});
+                        await chatsCollection.insertOne({
+                            chatId: crypto.createHash('sha1').update(Date.now().toString()).digest('hex'),
+                            type: messageData.data.type,
+                            title: secondUser.email.split("@")[0],
+                            userIds: [...messageData.data.userIds, messageData.data.sender.uid]
+                        });
+                    } else {
+                        await chatsCollection.insertOne({
+                            chatId: crypto.createHash('sha1').update(Date.now().toString()).digest('hex'),
+                            type: messageData.data.type,
+                            title: messageData.data.title,
+                            userIds: [...messageData.data.userIds, messageData.data.sender.uid]
+                        });
+                    }
+
+                    const updatedUserChats = await chatsCollection.find({ userIds: messageData.data.sender.uid}).toArray();
+
+                    const updatedChatsWithMessages = await Promise.all(
+                        updatedUserChats.map(async chat => {
+                            const messages = (await messagesCollection.find({ 
+                                chatId: chat.chatId
+                            }).sort({ timestamp: 1 }).limit(50).toArray()).map(mes => ({
+                                id: mes.id, 
+                                chatId: mes.chatId, 
+                                sender: mes.sender, 
+                                text: mes.text, 
+                                timestamp: mes.timestamp
+                            }));
+                            
+                            return { ...chat, messages };
+                        })
+                    );
+
+                    ws.send(JSON.stringify({
+                        event: 'chats',
+                        data: updatedChatsWithMessages
+                    }));
+
+                    break;
+                case 'users':
+                    const allUsers = await usersCollection.find({ 
+                        uid: { $ne: messageData.data.user.uid } 
+                      }).toArray();
+                    ws.send(JSON.stringify({
+                        event: 'users',
+                        data: allUsers
+                    }));
                     break;
                 default:
                     console.warn("Неизвестное событие:", messageData.event);

@@ -7,9 +7,10 @@ import { SocketService } from "../services/socketService";
 
 interface IInputFieldProps {
     socket: SocketService | null
+    chatId: string | undefined
 }
 
-const InputField: FC<IInputFieldProps> = ({socket}) => {
+const InputField: FC<IInputFieldProps> = ({socket, chatId}) => {
     const [text, setText] = useState<string>("")
     const { user } = useSelector((state: RootState) => state.auth);
 
@@ -18,7 +19,7 @@ const InputField: FC<IInputFieldProps> = ({socket}) => {
         if (user) {
             const message = {
                 id: Date.now(),
-                chatId: 1,
+                chatId: chatId,
                 sender: {uid: user.uid, email: user.email, photoURL: user.photoURL},
                 text: text,
             }

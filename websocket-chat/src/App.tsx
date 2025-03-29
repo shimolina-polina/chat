@@ -8,6 +8,7 @@ import { Grid2, Typography } from '@mui/material';
 import ChatList from './components/ChatList';
 import { IChat } from './interface/IChat';
 import { IMessage } from './interface/IMessage';
+import { IUser } from './interface/IUser';
 
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
     const [chats, setChats] = useState<IChat[]>([]);
     const [selectedChat, setSelectedChat] = useState<IChat | null>(null);
     const [newMessage, setNewMessage] = useState<IMessage | null>(null);
+    const [users, setUsers] = useState<IUser[]>([])
 
     useEffect(() => {
         if (user) {
@@ -37,7 +39,6 @@ function App() {
                         setChats(chatList)
                         break;
                     case "message":
-                        console.log(message)
                         const tempNewMessage: IMessage = {     
                             id: message.data.id,
                             chatId: message.data.chatId,
@@ -46,6 +47,9 @@ function App() {
                             timestamp: message.data.timestamp,
                         };
                         setNewMessage(tempNewMessage);
+                        break;
+                    case "users":
+                        setUsers(message.data);
                         
                 }
             };
@@ -69,7 +73,7 @@ function App() {
             }
             <Grid2 container>
                 <Grid2 size={2}>
-                    {user && <ChatList chats={chats} setSelectedChat={setSelectedChat}/>}
+                    {user && <ChatList chats={chats} setSelectedChat={setSelectedChat} socket={socketService.current} users={users}/>}
                 </Grid2>
                 <Grid2 size={10}>
                     {user && <Chat socket={socketService.current} selectedChat={selectedChat} newMessage={newMessage}/>}
